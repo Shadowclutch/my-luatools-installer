@@ -2,7 +2,7 @@ import os
 import winreg
 import zipfile
 import shutil
-import requests
+from curl_cffi import requests  # Swapped standard requests for browser impersonation
 
 def get_steam_path():
     """Locates the active Steam installation folder."""
@@ -34,34 +34,33 @@ def main():
         print("[!] API Key and AppID cannot be empty.")
         return
 
-    # Formatted route used explicitly by Hubcap for file distribution
     download_url = f"https://hubcapmanifest.com/api/v1/download/{appid}"
     
     temp_dir = os.environ.get("TEMP", os.getcwd())
     temp_file_path = os.path.join(temp_dir, f"hubcap_{appid}.zip")
 
-    # 3. Requesting file data with precise browser simulation headers
-    print("[*] Requesting manifest packet from Hubcap...")
+    # 3. Requesting file data using Chrome TLS Impersonation
+    print("[*] Requesting manifest packet from Hubcap (Impersonating Chrome)...")
     try:
         headers = {
             "Authorization": f"Bearer {api_key}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/zip, application/octet-stream, */*"
+            "Accept": "application/zip, application/octet-stream, */*",
+            "Accept-Language": "en-US,en;q=0.9",
         }
         
-        response = requests.get(download_url, headers=headers, stream=True)
+        # impersonate="chrome" tricks Cloudflare into thinking this is a real browser window
+        response = requests.get(download_url, headers=headers, impersonate="chrome")
         
-        # Guard against HTML text pages passing through
-        if "text/html" in response.headers.get("Content-Type", ""):
-            print("[!] Security Error: Hubcap blocked the request or the API Key has expired.")
-            print("[!] Please make sure your token is active on hubcapmanifest.com")
+        # Guard against Cloudflare challenge pages falling through
+        if "text/html" in response.headers.get("Content-Type", "") or response.status_code == 403:
+            print("[!] Security Error: Cloudflare blocked the script connection.")
+            print("[!] If your key is good, Cloudflare requires a real browser engine.")
             return
             
         response.raise_for_status()
         
         with open(temp_file_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
+            f.write(response.content)
         print("[+] Package downloaded successfully.")
     except Exception as e:
         print(f"[!] Network request rejected: {e}")
